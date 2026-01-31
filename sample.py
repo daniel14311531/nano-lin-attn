@@ -6,7 +6,9 @@ import pickle
 from contextlib import nullcontext
 import torch
 import tiktoken
-from model import GPTConfig, GPT
+
+from models import *
+from model_list import get_model, model_map
 
 # -----------------------------------------------------------------------------
 init_from = 'resume' # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
@@ -32,12 +34,19 @@ ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torc
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
 # model
+model_name: str = 'custom' # model type to instantiate
+
+# get the model class and config based on model_name
+model_config, model_class = get_model(model_name)
+if model_config is None or model_class is None:
+    raise ValueError(f"Unknown model name '{model_name}'. Available models: {list(model_map.keys())}")
+
 if init_from == 'resume':
     # init from a model saved in a specific directory
     ckpt_path = os.path.join(out_dir, 'ckpt.pt')
     checkpoint = torch.load(ckpt_path, map_location=device)
-    gptconf = GPTConfig(**checkpoint['model_args'])
-    model = GPT(gptconf)
+    model_config_instance = model_config(**checkpoint['model_args'])
+    model = model_class(model_config_instance)
     state_dict = checkpoint['model']
     unwanted_prefix = '_orig_mod.'
     for k,v in list(state_dict.items()):
