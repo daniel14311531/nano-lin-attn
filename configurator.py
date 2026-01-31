@@ -22,12 +22,13 @@ for arg in sys.argv[1:]:
         # assume it's the name of a config file
         assert not arg.startswith('--')
         config_file = arg
-        print(f"Overriding config with {config_file}:")
-        with open(config_file) as f:
-            print(f.read())
+        # print(f"Overriding config with {config_file}:")
+        # with open(config_file) as f:
+        #     print(f.read())
         exec(open(config_file).read())
     else:
         # assume it's a --key=value argument
+        raise NotImplementedError("Command line overrides are not supported in this version.")
         assert arg.startswith('--')
         key, val = arg.split('=')
         key = key[2:]

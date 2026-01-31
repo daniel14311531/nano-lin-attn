@@ -1,39 +1,74 @@
 # train a miniature shakespeare model
 # good for debugging and playing on macbooks and such
+from utils.config import *
+from models import *
 
-out_dir = 'out-shakespeare'
-init_from = 'scratch'
-eval_interval = 75 # keep frequent because we'll overfit
-eval_iters = 50
-log_interval = 5 # don't print too too often
+# I/O
+io_config = IOConfig(
+    out_dir = 'out-shakespeare',
+    eval_interval = 75, # keep frequent because we'll overfit
+    eval_iters = 50,
+    log_interval = 5, # don't print too too often
+    always_save_checkpoint = False, # we expect to overfit on this small dataset, so only save when val improves
+    init_from = 'scratch',
+)
 
-# we expect to overfit on this small dataset, so only save when val improves
-always_save_checkpoint = False
+# wandb
+wandb_config = WandbConfig(
+    wandb_log= True,
+    wandb_project= 'shakespeare',
+    wandb_run_name= 'gpt2', # [TODO]
+)
 
-wandb_log = True # override via command line if you like
-wandb_project = 'shakespeare'
-wandb_run_name = 'gpt2' # [TODO]
-
-dataset = 'shakespeare'
-gradient_accumulation_steps = 1
-batch_size = 16
-block_size = 256 # context of up to 256 previous characters
+# data
+data_config = DataConfig(
+    dataset = 'shakespeare',
+    gradient_accumulation_steps = 1,
+    batch_size = 8,
+    block_size = 256, # context of up to 256 previous characters
+)
 
 # baby GPT model :)
-model_name: str = 'gpt2'
-n_layer = 6
-n_head = 6
-n_embd = 384
-dropout = 0.2
+model_config_instance = GPT2Config(
+    model_name = 'gpt2',
+    n_layer = 6,
+    n_head = 6,
+    n_embd = 384,
+    dropout = 0.2,
+    block_size = 256,
+    bias = False,
+)
 
-learning_rate = 1e-3 # with baby networks can afford to go a bit higher
-max_iters = 75
-lr_decay_iters = 75 # make equal to max_iters usually
-min_lr = 1e-4 # learning_rate / 10 usually
-beta2 = 0.99 # make a bit bigger because number of tokens per iter is small
+# optimizer
+optimizer_config = OptimizerConfig(
+    learning_rate = 5e-4, # with baby networks can afford to go a bit higher
+    max_iters = 150,
+    lr_decay_iters = 150, # make equal to max_iters usually
+    min_lr = 1e-4, # learning_rate / 10 usually
+    beta2 = 0.99, # make a bit bigger because number of tokens per iter is small
+    warmup_iters = 15, # not super necessary potentially
+)
 
-warmup_iters = 8 # not super necessary potentially
+# system
+system_config = SystemConfig(
+    backend = 'gloo',  # gloo backend works better for small data
+    device = 'cpu',  # run on cpu only
+    compile = False # do not torch compile the model
+)
 
-# on macbook also add
-device = 'cpu'  # run on cpu only
-compile = False # do not torch compile the model
+# config = {
+#     "io": asdict(io_config),
+#     "wandb": asdict(wandb_config),
+#     "data": asdict(data_config),
+#     "model": asdict(model_config_instance),
+#     "optimizer": asdict(optimizer_config),
+#     "system": asdict(system_config),
+# }
+config = {
+    "io": io_config,
+    "wandb": wandb_config,
+    "data": data_config,
+    "model": model_config_instance,
+    "optimizer": optimizer_config,
+    "system": system_config,
+}

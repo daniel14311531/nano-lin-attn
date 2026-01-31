@@ -17,16 +17,20 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 """
 
 import os
+import sys
 import time
 import math
 import pickle
 from contextlib import nullcontext
+from dataclasses import asdict, is_dataclass
+from datetime import datetime
 
 import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
+from utils.config import *
 from models import *
 from model_list import get_model, model_map
 
@@ -38,59 +42,30 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 # -----------------------------------------------------------------------------
-# default config values designed to train a gpt2 (124M) on OpenWebText
-# I/O
-out_dir = 'out'
-eval_interval = 2000
-log_interval = 1
-eval_iters = 200
-eval_only = False # if True, script exits right after the first eval
-always_save_checkpoint = True # if True, always save a checkpoint after each eval
-init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
-# wandb logging
-wandb_log = False # disabled by default
-wandb_project = 'owt'
-wandb_run_name = 'gpt2' # 'run' + str(time.time())
-# data
-dataset = 'openwebtext'
-gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
-batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size
-block_size = 1024
-# model
-model_name: str = 'custom' # model type to instantiate
-n_layer = 12
-n_head = 12
-n_embd = 768
-dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
-bias = False # do we use bias inside LayerNorm and Linear layers?
-# adamw optimizer
-learning_rate = 6e-4 # max learning rate
-max_iters = 600000 # total number of training iterations
-weight_decay = 1e-1
-beta1 = 0.9
-beta2 = 0.95
-grad_clip = 1.0 # clip gradients at this value, or disable if == 0.0
-# learning rate decay settings
-decay_lr = True # whether to decay the learning rate
-warmup_iters = 2000 # how many steps to warm up for
-lr_decay_iters = 600000 # should be ~= max_iters per Chinchilla
-min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
-# DDP settings
-backend = 'nccl' # 'nccl', 'gloo', etc.
-# system
-device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
-dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
-compile = True # use PyTorch 2.0 to compile the model to be faster
-# -----------------------------------------------------------------------------
-config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
+
+# load the config values from config file and command line overrides
+config = get_default_config()
 exec(open('configurator.py').read()) # overrides from command line or config file
-config = {k: globals()[k] for k in config_keys} # will be useful for logging
+io_config: IOConfig = config['io']
+wandb_config: WandbConfig = config['wandb']
+data_config: DataConfig = config['data']
+model_config_instance: ModelConfig = config['model']
+optimizer_config: OptimizerConfig = config['optimizer']
+system_config: SystemConfig = config['system']
+print("training config:")
+print(io_config)
+print(wandb_config)
+print(data_config)
+print(model_config_instance)
+print(optimizer_config)
+print(system_config)
+
 # -----------------------------------------------------------------------------
 
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
 if ddp:
-    init_process_group(backend=backend)
+    init_process_group(backend=system_config.backend)
     ddp_rank = int(os.environ['RANK'])
     ddp_local_rank = int(os.environ['LOCAL_RANK'])
     ddp_world_size = int(os.environ['WORLD_SIZE'])
@@ -100,28 +75,29 @@ if ddp:
     seed_offset = ddp_rank # each process gets a different seed
     # world_size number of processes will be training simultaneously, so we can scale
     # down the desired gradient accumulation iterations per process proportionally
-    assert gradient_accumulation_steps % ddp_world_size == 0
-    gradient_accumulation_steps //= ddp_world_size
+    assert data_config.gradient_accumulation_steps % ddp_world_size == 0
+    data_config.gradient_accumulation_steps //= ddp_world_size
 else:
     # if not ddp, we are running on a single gpu, and one process
     master_process = True
     seed_offset = 0
     ddp_world_size = 1
-tokens_per_iter = gradient_accumulation_steps * ddp_world_size * batch_size * block_size
+    device = system_config.device
+tokens_per_iter = data_config.gradient_accumulation_steps * ddp_world_size * data_config.batch_size * data_config.block_size
 print(f"tokens per iteration will be: {tokens_per_iter:,}")
 
 if master_process:
-    os.makedirs(out_dir, exist_ok=True)
+    os.makedirs(io_config.out_dir, exist_ok=True)
 torch.manual_seed(1337 + seed_offset)
 torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
 device_type = 'cuda' if 'cuda' in device else 'cpu' # for later use in torch.autocast
 # note: float16 data type will automatically use a GradScaler
-ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
+ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[system_config.dtype]
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
 # poor man's data loader
-data_dir = os.path.join('data', dataset)
+data_dir = os.path.join('data', data_config.dataset)
 def get_batch(split):
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
@@ -129,9 +105,9 @@ def get_batch(split):
         data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')
     else:
         data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
-    y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
+    ix = torch.randint(len(data) - data_config.block_size, (data_config.batch_size,))
+    x = torch.stack([torch.from_numpy((data[i:i+data_config.block_size]).astype(np.int64)) for i in ix])
+    y = torch.stack([torch.from_numpy((data[i+1:i+1+data_config.block_size]).astype(np.int64)) for i in ix])
     if device_type == 'cuda':
         # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
         x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
@@ -153,26 +129,27 @@ if os.path.exists(meta_path):
     print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
 
 # get the model class and config based on model_name
-model_config, model_class = get_model(model_name)
-if model_config is None or model_class is None:
-    raise ValueError(f"Unknown model name '{model_name}'. Available models: {list(model_map.keys())}")
+model_class = get_model(model_config_instance.model_name)
+if model_class is None:
+    raise ValueError(f"Unknown model name '{model_config_instance.model_name}'. Available models: {list(model_map.keys())}")
 
 # model init
-model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
-if init_from == 'scratch':
+model_args = dict(n_layer=model_config_instance.n_layer, n_head=model_config_instance.n_head, n_embd=model_config_instance.n_embd, block_size=model_config_instance.block_size,
+                  bias=model_config_instance.bias, vocab_size=None, dropout=model_config_instance.dropout) # start with model_args from command line
+if io_config.init_from == 'scratch':
     # init a new model from scratch
     print("Initializing a new model from scratch")
     # determine the vocab size we'll use for from-scratch training
     if meta_vocab_size is None:
         print("defaulting to vocab_size of GPT-2 to 50304 (50257 rounded up for efficiency)")
     model_args['vocab_size'] = meta_vocab_size if meta_vocab_size is not None else 50304
-    model_config_instance = model_config(**model_args)
+    for k, v in model_args.items():
+        setattr(model_config_instance, k, v)
     model = model_class(model_config_instance)
-elif init_from == 'resume':
-    print(f"Resuming training from {out_dir}")
+elif io_config.init_from == 'resume':
+    print(f"Resuming training from {io_config.out_dir}")
     # resume training from a checkpoint.
-    ckpt_path = os.path.join(out_dir, f'ckpt_{model_name}.pt')
+    ckpt_path = os.path.join(io_config.out_dir, f'ckpt_{model_config_instance.model_name}.pt')
     checkpoint = torch.load(ckpt_path, map_location=device)
     checkpoint_model_args = checkpoint['model_args']
     # force these config attributes to be equal otherwise we can't even resume training
@@ -180,7 +157,8 @@ elif init_from == 'resume':
     for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
         model_args[k] = checkpoint_model_args[k]
     # create the model
-    model_config_instance = model_config(**model_args)
+    for k, v in model_args.items():
+        setattr(model_config_instance, k, v)
     model = model_class(model_config_instance)
     state_dict = checkpoint['model']
     # fix the keys of the state dictionary :(
@@ -192,21 +170,21 @@ elif init_from == 'resume':
     model.load_state_dict(state_dict)
     iter_num = checkpoint['iter_num']
     best_val_loss = checkpoint['best_val_loss']
-elif init_from.startswith('gpt2'):
-    raise NotImplementedError("loading from pretrained GPT-2 is currently disabled.")
+else:
+    raise ValueError(f"Unknown init_from value '{io_config.init_from}'")
 # crop down the model block size if desired, using model surgery
-if block_size < model.config.block_size:
-    model.crop_block_size(block_size)
-    model_args['block_size'] = block_size # so that the checkpoint will have the right value
+if data_config.block_size < model.config.block_size:
+    model.crop_block_size(data_config.block_size)
+    model_args['block_size'] = data_config.block_size # so that the checkpoint will have the right value
 model = model.to(device)
 model.show_number_of_parameters()
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
-scaler = torch.amp.GradScaler(device=device, enabled=(dtype == 'float16'))
+scaler = torch.amp.GradScaler(device=device, enabled=(system_config.dtype == 'float16'))
 
 # optimizer
-optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
-if init_from == 'resume':
+optimizer = model.configure_optimizers(optimizer_config.weight_decay, optimizer_config.learning_rate, (optimizer_config.beta1, optimizer_config.beta2), device_type)
+if io_config.init_from == 'resume':
     optimizer.load_state_dict(checkpoint['optimizer'])
 checkpoint = None # free up memory
 
@@ -226,8 +204,8 @@ def estimate_loss(splits: list = ['train', 'val']):
     out = {}
     model.eval()
     for split in splits:
-        losses = torch.zeros(eval_iters)
-        for k in range(eval_iters):
+        losses = torch.zeros(io_config.eval_iters)
+        for k in range(io_config.eval_iters):
             X, Y = get_batch(split)
             with ctx:
                 logits, loss = model(X, Y)
@@ -239,21 +217,36 @@ def estimate_loss(splits: list = ['train', 'val']):
 # learning rate decay scheduler (cosine with warmup)
 def get_lr(it):
     # 1) linear warmup for warmup_iters steps
-    if it < warmup_iters:
-        return learning_rate * (it + 1) / (warmup_iters + 1)
+    if it < optimizer_config.warmup_iters:
+        return optimizer_config.learning_rate * (it + 1) / (optimizer_config.warmup_iters + 1)
     # 2) if it > lr_decay_iters, return min learning rate
-    if it > lr_decay_iters:
-        return min_lr
+    if it > optimizer_config.lr_decay_iters:
+        return optimizer_config.min_lr
     # 3) in between, use cosine decay down to min learning rate
-    decay_ratio = (it - warmup_iters) / (lr_decay_iters - warmup_iters)
+    decay_ratio = (it - optimizer_config.warmup_iters) / (optimizer_config.lr_decay_iters - optimizer_config.warmup_iters)
     assert 0 <= decay_ratio <= 1
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff ranges 0..1
-    return min_lr + coeff * (learning_rate - min_lr)
+    return optimizer_config.min_lr + coeff * (optimizer_config.learning_rate - optimizer_config.min_lr)
 
 # logging
-if wandb_log and master_process:
+if wandb_config.wandb_log and master_process:
     import wandb
-    wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+    # flatten config to avoid pydantic warnings about tuples
+    flat_config = {}
+    for category, category_config in config.items():
+        if is_dataclass(category_config):
+            for k, v in asdict(category_config).items():
+                flat_config[f"{category}/{k}"] = v
+        elif isinstance(category_config, dict):
+                for k, v in category_config.items():
+                    flat_config[f"{category}/{k}"] = v
+        else:
+            flat_config[category] = category_config
+    wandb.init(
+        project=wandb_config.wandb_project,
+        name=wandb_config.wandb_run_name + f"-{model.get_num_params()/1e6:.1f}M" + f"-{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}",
+        config=flat_config
+    )
 
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
@@ -261,19 +254,22 @@ t0 = time.time()
 local_iter_num = 0 # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model # unwrap DDP container if needed
 running_mfu = -1.0
+
+training_start_time = time.time()
+
 while True:
 
     # determine and set the learning rate for this iteration
-    lr = get_lr(iter_num) if decay_lr else learning_rate
+    lr = get_lr(iter_num) if optimizer_config.decay_lr else optimizer_config.learning_rate
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
     # evaluate the loss on train/val sets and write checkpoints
-    if iter_num % eval_interval == 0 and master_process:
+    if iter_num % io_config.eval_interval == 0 and master_process:
         losses = estimate_loss(['val'])
         # print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
         print(f"step {iter_num}: val loss {losses['val']:.4f}")
-        if wandb_log:
+        if wandb_config.wandb_log:
             wandb.log({
                 "iter": iter_num,
                 # "train/loss": losses['train'],
@@ -281,7 +277,7 @@ while True:
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
             })
-        if losses['val'] < best_val_loss or always_save_checkpoint:
+        if losses['val'] < best_val_loss or io_config.always_save_checkpoint:
             best_val_loss = losses['val']
             if iter_num > 0:
                 checkpoint = {
@@ -291,33 +287,33 @@ while True:
                     'iter_num': iter_num,
                     'best_val_loss': best_val_loss,
                     'config': config,
-                    'model_name': model_name,
+                    'model_name': model_config_instance.model_name,
                 }
-                print(f"saving checkpoint to {out_dir}")
-                torch.save(checkpoint, os.path.join(out_dir, f'ckpt_{model_name}.pt'))
-    if iter_num == 0 and eval_only:
+                print(f"saving checkpoint to {io_config.out_dir}")
+                torch.save(checkpoint, os.path.join(io_config.out_dir, f'ckpt_{model_config_instance.model_name}.pt'))
+    if iter_num == 0 and io_config.eval_only:
         break
 
     # forward backward update, with optional gradient accumulation to simulate larger batch size
     # and using the GradScaler if data type is float16
-    for micro_step in range(gradient_accumulation_steps):
+    for micro_step in range(data_config.gradient_accumulation_steps):
         if ddp:
             # in DDP training we only need to sync gradients at the last micro step.
             # the official way to do this is with model.no_sync() context manager, but
             # I really dislike that this bloats the code and forces us to repeat code
             # looking at the source of that context manager, it just toggles this variable
-            model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
+            model.require_backward_grad_sync = (micro_step == data_config.gradient_accumulation_steps - 1)
         with ctx:
             logits, loss = model(X, Y)
-            loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
+            loss = loss / data_config.gradient_accumulation_steps # scale the loss to account for gradient accumulation
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
         X, Y = get_batch('train')
         # backward pass, with gradient scaling if training in fp16
         scaler.scale(loss).backward()
     # clip the gradient
-    if grad_clip != 0.0:
+    if optimizer_config.grad_clip != 0.0:
         scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), optimizer_config.grad_clip)
     # step the optimizer and scaler if training in fp16
     scaler.step(optimizer)
     scaler.update()
@@ -328,15 +324,15 @@ while True:
     t1 = time.time()
     dt = t1 - t0
     t0 = t1
-    if iter_num % log_interval == 0 and master_process:
+    if iter_num % io_config.log_interval == 0 and master_process:
         # get loss as float. note: this is a CPU-GPU sync point
         # scale up to undo the division above, approximating the true total loss (exact would have been a sum)
-        lossf = loss.item() * gradient_accumulation_steps
+        lossf = loss.item() * data_config.gradient_accumulation_steps
         if local_iter_num >= 5: # let the training loop settle a bit
-            mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
+            mfu = raw_model.estimate_mfu(data_config.batch_size * data_config.gradient_accumulation_steps, dt)
             running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
         print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
-        if wandb_log:
+        if wandb_config.wandb_log:
             wandb.log({
                 "iter": iter_num,
                 "train/loss": lossf,
@@ -347,8 +343,12 @@ while True:
     local_iter_num += 1
 
     # termination conditions
-    if iter_num > max_iters:
+    if iter_num > optimizer_config.max_iters:
         break
+
+training_end_time = time.time()
+total_training_time = training_end_time - training_start_time
+print(f"Training completed in {total_training_time/60:.2f} minutes.")
 
 if ddp:
     destroy_process_group()
