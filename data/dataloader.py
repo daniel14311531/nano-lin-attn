@@ -20,11 +20,12 @@ class BatchIterator:
         self.data = np.memmap(path, dtype=np.uint16, mode='r')
         self.max_start = len(self.data) - data_config.block_size - 1
         self.ptr = 0
+        self.rng: np.random.Generator = np.random.default_rng(42)
         self._reshuffle()
-        np.random.seed(42)
 
     def _reshuffle(self):
-        self.order = np.random.permutation(self.max_start)
+        self.order = self.rng.permutation(self.max_start)
+        print(self.order)
         self.ptr = 0
 
     def next(self):
