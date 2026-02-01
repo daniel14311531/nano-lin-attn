@@ -25,7 +25,6 @@ class BatchIterator:
 
     def _reshuffle(self):
         self.order = self.rng.permutation(self.max_start)
-        print(self.order)
         self.ptr = 0
 
     def next(self):

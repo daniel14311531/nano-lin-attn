@@ -61,6 +61,7 @@ print(system_config)
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
 if ddp:
+    print("setting up ddp...")
     init_process_group(backend=system_config.backend)
     ddp_rank = int(os.environ['RANK'])
     ddp_local_rank = int(os.environ['LOCAL_RANK'])
@@ -343,6 +344,9 @@ while True:
 training_end_time = time.time()
 total_training_time = training_end_time - training_start_time
 print(f"Training completed in {total_training_time/60:.2f} minutes.")
+
+if wandb_config.wandb_log and master_process:
+    wandb.finish()
 
 if ddp:
     destroy_process_group()
