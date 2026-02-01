@@ -4,15 +4,47 @@ import torch.nn as nn
 def calc_inverse(T: torch.Tensor) -> torch.Tensor:
     B, H, C, _ = T.size()
     cur = 1
-    res = -T + torch.eye(C, device=T.device, dtype=T.dtype).unsqueeze(0).unsqueeze(0)  # (B, H, C, C)
-    mu = T @ T # (B, H, C, C)
-    while True:
-        if cur >= C:
-            break
-        res = res + res @ mu
+    res = T + torch.eye(C, device=T.device, dtype=T.dtype).unsqueeze(0).unsqueeze(0)  # (B, H, C, C)
+    return torch.linalg.inv(res)
+    # res = -T + torch.eye(C, device=T.device, dtype=T.dtype).unsqueeze(0).unsqueeze(0)  # (B, H, C, C)
+    # mu = T @ T # (B, H, C, C)
+    # while True:
+    #     if cur >= C:
+    #         break
+    #     res = res + (res @ mu)
+    #     mu = mu @ mu
+    #     cur = cur * 2 + 1
+    # return res
+    eye = torch.eye(C, device=T.device, dtype=T.dtype).unsqueeze(0).unsqueeze(0)
+    # (I + T)^{-1} = sum_{s=0}^{C-1} (-1)^s T^s = sum_{s=0}^{C-1} A^s, A = -T
+    res = eye  # (B, H, C, C)
+    mu = -T  # (B, H, C, C), A^{1}
+    while cur < C:
+        res = res + (res @ mu)
         mu = mu @ mu
-        cur = cur * 2 + 1
-    return res
+        cur = cur * 2
+    return res.to(T.dtype)
+
+
+class CalcInverseFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, T: torch.Tensor) -> torch.Tensor:
+        # Compute Y = (I + T)^{-1} using the existing series-based method
+        Y = calc_inverse(T)
+        ctx.save_for_backward(Y)
+        return Y
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        (Y,) = ctx.saved_tensors
+        # dY = -Y dT Y  => grad_T = -(Y^T @ grad_output @ Y^T)
+        Y_t = Y.transpose(-2, -1)
+        grad_T = -(Y_t @ grad_output @ Y_t)
+        return grad_T
+
+
+def calc_inverse_autograd(T: torch.Tensor) -> torch.Tensor:
+    return CalcInverseFunction.apply(T)
 
 def delta_rule(
     k: torch.Tensor,
@@ -55,6 +87,10 @@ def delta_rule(
         T = (k_chunk @ beta_k_chunk.transpose(-2, -1)).tril(-1) # (B, H, C, C)
         W = k_chunk @ state  # (B, H, C, D)
         inv_T_I = calc_inverse(T)
+        # inv_T_I = calc_inverse_autograd(T)
+
+        # check https://kexue.fm/archives/11563
+        assert inv_T_I.all() >= -1.0 and inv_T_I.all() <= 1.0, "Inverse matrix has invalid values"
 
         u_chunk = inv_T_I @ (v_chunk - W)  # (B, H, C, D)
 
