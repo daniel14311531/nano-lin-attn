@@ -11,3 +11,8 @@ input.txt
 env/
 venv/
 wandb/
+
+# not used
+bench.py
+scaling_laws.ipynb
+trainsformer_sizing.ipynb
