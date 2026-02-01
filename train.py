@@ -33,6 +33,9 @@ from torch.distributed import init_process_group, destroy_process_group
 from utils.config import *
 from models import *
 from model_list import get_model, model_map
+from data.dataloader import BatchIterator
+
+os.environ["TORCHDYNAMO_VERBOSE"] = "1"
 
 # fix random seed for reproducibility
 torch.manual_seed(42)
@@ -40,6 +43,7 @@ torch.cuda.manual_seed(42)
 torch.cuda.manual_seed_all(42)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
+np.random.seed(42)
 
 # -----------------------------------------------------------------------------
 
@@ -49,7 +53,7 @@ exec(open('configurator.py').read()) # overrides from command line or config fil
 io_config: IOConfig = config['io']
 wandb_config: WandbConfig = config['wandb']
 data_config: DataConfig = config['data']
-model_config_instance: ModelConfig = config['model']
+model_config_instance = config['model']
 optimizer_config: OptimizerConfig = config['optimizer']
 system_config: SystemConfig = config['system']
 print("training config:")
@@ -98,22 +102,17 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 
 # poor man's data loader
 data_dir = os.path.join('data', data_config.dataset)
+
+train_dataset = BatchIterator(data_config, 'train', device=torch.device(device), device_type=device_type)
+val_dataset = BatchIterator(data_config, 'val', device=torch.device(device), device_type=device_type)
+
 def get_batch(split):
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
     if split == 'train':
-        data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')
+        return train_dataset.get_batch()
     else:
-        data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')
-    ix = torch.randint(len(data) - data_config.block_size, (data_config.batch_size,))
-    x = torch.stack([torch.from_numpy((data[i:i+data_config.block_size]).astype(np.int64)) for i in ix])
-    y = torch.stack([torch.from_numpy((data[i+1:i+1+data_config.block_size]).astype(np.int64)) for i in ix])
-    if device_type == 'cuda':
-        # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
-        x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
-    else:
-        x, y = x.to(device), y.to(device)
-    return x, y
+        return val_dataset.get_batch()
 
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
@@ -189,7 +188,7 @@ if io_config.init_from == 'resume':
 checkpoint = None # free up memory
 
 # compile the model
-if compile:
+if system_config.compile:
     print("compiling the model... (takes a ~minute)")
     unoptimized_model = model
     model = torch.compile(model) # requires PyTorch 2.0

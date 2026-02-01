@@ -17,7 +17,7 @@ io_config = IOConfig(
 wandb_config = WandbConfig(
     wandb_log= True,
     wandb_project= 'shakespeare',
-    wandb_run_name= 'gpt2', # [TODO]
+    wandb_run_name= 'deltanet', # [TODO]
 )
 
 # data
@@ -29,14 +29,17 @@ data_config = DataConfig(
 )
 
 # baby GPT model :)
-model_config_instance = GPT2Config(
-    model_name = 'gpt2',
+model_config_instance = DeltaNetConfig(
+    model_name = 'deltanet',
     n_layer = 6,
     n_head = 6,
     n_embd = 384,
     dropout = 0.2,
     block_size = 256,
     bias = False,
+
+    conv_size=4,
+    initial_state=False,
 )
 
 # optimizer
@@ -53,7 +56,7 @@ optimizer_config = OptimizerConfig(
 system_config = SystemConfig(
     backend = 'gloo',  # gloo backend works better for small data
     device = 'cpu',  # run on cpu only
-    compile = False # do not torch compile the model
+    compile = True # do not torch compile the model
 )
 
 # config = {

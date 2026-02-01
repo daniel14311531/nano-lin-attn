@@ -31,16 +31,6 @@ class DataConfig:
 
 
 @dataclass
-class ModelConfig:
-    model_name: str = "custom"
-    n_layer: int = 12
-    n_head: int = 12
-    n_embd: int = 768
-    dropout: float = 0.0
-    bias: bool = False
-
-
-@dataclass
 class OptimizerConfig:
     learning_rate: float = 6e-4
     max_iters: int = 600000
@@ -68,7 +58,6 @@ def get_default_config() -> Dict[str, Any]:
         "io": asdict(IOConfig()),
         "wandb": asdict(WandbConfig()),
         "data": asdict(DataConfig()),
-        "model": asdict(ModelConfig()),
         "optimizer": asdict(OptimizerConfig()),
         "system": asdict(SystemConfig()),
     }
