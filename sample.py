@@ -29,7 +29,7 @@ system_config: SystemConfig = config['system']
 start = "\n" # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
 num_samples = 10 # number of samples to draw
 max_new_tokens = 500 # number of tokens generated in each sample
-temperature = 0.8 # 1.0 = no change, < 1.0 = less random, > 1.0 = more random, in predictions
+temperature = 1.0 # 1.0 = no change, < 1.0 = less random, > 1.0 = more random, in predictions
 top_k = 200 # retain only the top_k most likely tokens, clamp others to have 0 probability
 seed = 1337
 # -----------------------------------------------------------------------------
@@ -57,7 +57,7 @@ elif io_config.init_from == 'resume':
     print(f"Resuming from {io_config.out_dir}")
     # resume training from a checkpoint.
     ckpt_path = os.path.join(io_config.out_dir, f'ckpt_{model_config_instance.model_name}.pt')
-    checkpoint = torch.load(ckpt_path, map_location=device)
+    checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
     checkpoint_model_args = checkpoint['model_args']
     # force these config attributes to be equal otherwise we can't even resume training
     # the rest of the attributes (e.g. dropout) can stay as desired from command line
