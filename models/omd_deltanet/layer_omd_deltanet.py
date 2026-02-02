@@ -30,6 +30,7 @@ class OmdDeltaNetLayer(nn.Module):
         self.initial_state = config.initial_state
         if config.initial_state:
             self.init_state = nn.Parameter(torch.zeros(1, config.n_head, self.head_dim, self.head_dim))
+        self.eta = config.eta
 
     def forward(self, x):
         B, L, D = x.size()
@@ -59,7 +60,7 @@ class OmdDeltaNetLayer(nn.Module):
             k = k,
             q = q,
             v = v,
-            beta = beta,
+            beta = self.eta * beta,
             init_state = init_state
         )
 

@@ -40,6 +40,7 @@ model_config_instance = DeltaNetConfig(
 
     conv_size=4,
     initial_state=False,
+    eta=0.0001,
 )
 
 # optimizer

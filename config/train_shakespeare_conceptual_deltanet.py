@@ -40,7 +40,7 @@ model_config_instance = ConceptualDeltaNetConfig(
 
     conv_size=4,
     initial_state=False,
-    eta=1,
+    eta=0.0001,
 )
 
 # optimizer
