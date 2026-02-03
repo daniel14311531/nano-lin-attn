@@ -3,6 +3,7 @@ from .model_arch import CausalLM
 from .configuration import Config
 from .rotary import RotaryEmbedding
 from .norm import RMSNorm
+from .cache import AttnCache
 
 __all__ = [
 	"CausalLM",
@@ -12,4 +13,5 @@ __all__ = [
 	"RotaryEmbedding",
 	"Config",
 	"RMSNorm",
+	"AttnCache",
 ]

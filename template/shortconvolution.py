@@ -10,15 +10,28 @@ class ShortConv(nn.Module):
             in_channels=n_embd,
             out_channels=n_embd,
             kernel_size=kernel_size,
-            padding=kernel_size - 1,
+            padding=0,
             groups=n_embd,
             bias=False,
         )
         self.n_embd = n_embd
 
-    def forward(self, x):
+    def forward(
+        self,
+        x: torch.Tensor,
+        prev_x: torch.Tensor = None,
+    ):
         # x: (B, T, C)
         x = x.transpose(1, 2)  # (B, C, T)
-        x = self.conv(x)[..., :x.size(2)]  # (B, C, T)
-        x = x.transpose(1, 2)  # (B, T, C)
-        return x
+        if prev_x is None:
+            prev_x = torch.zeros(
+                x.size(0),
+                x.size(1),
+                self.conv.kernel_size[0] - 1,
+                device=x.device,
+                dtype=x.dtype,
+            )
+        x = torch.cat([prev_x, x], dim=2)  # (B, C, T + K - 1)
+        new_x = self.conv(x)  # (B, C, T)
+        new_x = new_x.transpose(1, 2)  # (B, T, C)
+        return new_x, x[:, :, - (self.conv.kernel_size[0] - 1):]  # return output and new prev_x

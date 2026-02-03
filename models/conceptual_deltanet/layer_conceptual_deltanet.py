@@ -5,6 +5,7 @@ from .configuration_conceptual_deltanet import ConceptualDeltaNetConfig
 from template.shortconvolution import ShortConv
 from template.norm import RMSNorm
 from template.delta_rule import delta_rule
+from template.cache import AttnCache
 
 class ConceptualDeltaNetLayer(nn.Module):
     def __init__(self, config: ConceptualDeltaNetConfig):
@@ -32,7 +33,13 @@ class ConceptualDeltaNetLayer(nn.Module):
             self.init_state = nn.Parameter(torch.zeros(1, config.n_head, self.head_dim, self.head_dim))
         self.eta = config.eta
 
-    def forward(self, x):
+    def forward(
+        self,
+        x: torch.Tensor,
+        use_cache: bool=False,
+        cache_index: int=None,
+        attn_cache: AttnCache = None,
+    ):
         # check NaNs in weights
         # assert not torch.isnan(self.k_proj.weight).any(), "NaN detected in k_proj weights"
         # assert not torch.isnan(self.q_proj.weight).any(), "NaN detected in q_proj weights"
@@ -47,10 +54,21 @@ class ConceptualDeltaNetLayer(nn.Module):
         # assert not torch.isnan(x).any(), "NaN detected in input x"
 
         B, L, D = x.size()
-        k = F.silu(self.k_conv1d(self.k_proj(x)))
-        q = F.silu(self.q_conv1d(self.q_proj(x)))
-        v = self.v_conv1d(self.v_proj(x))
+
+        assert (not use_cache) or (attn_cache is not None and cache_index is not None), "attn_cache and cache_index must be provided when use_cache is True"
+
+        prev_k, prev_q, prev_v = None, None, None
+        if use_cache:
+            cache = attn_cache.get(cache_index)
+            prev_k = cache.get('k')
+            prev_q = cache.get('q')
+            prev_v = cache.get('v')
+
+        k, prev_k = self.k_conv1d(self.k_proj(x), prev_k)
+        q, prev_q = self.q_conv1d(self.q_proj(x), prev_q)
+        v, prev_v = self.v_conv1d(self.v_proj(x), prev_v)
         beta = torch.sigmoid(self.beta_proj(x))
+        k, q = F.silu(k), F.silu(q)
 
         k = k.view(B, L, self.n_head, self.head_dim)
         q = q.view(B, L, self.n_head, self.head_dim)
@@ -64,17 +82,21 @@ class ConceptualDeltaNetLayer(nn.Module):
         # beta = self.eta * beta / (1 + self.eta * beta * k_norm2)
         beta = self.eta * beta / (1 + self.eta * beta)
 
-        if self.initial_state:
-            init_state = self.init_state.repeat(B, 1, 1, 1)
-        else:
-            init_state = torch.zeros(B, self.n_head, self.head_dim, self.head_dim, device=x.device, dtype=x.dtype)
+        cur_state = None
+        if use_cache:
+            cur_state = cache.get('state')
+        if cur_state is None:
+            if self.initial_state:
+                cur_state = self.init_state.repeat(B, 1, 1, 1)
+            else:
+                cur_state = torch.zeros(B, self.n_head, self.head_dim, self.head_dim, device=x.device, dtype=x.dtype)
 
-        o = delta_rule(
+        o, cur_state = delta_rule(
             k = k,
             q = q,
             v = v,
             beta = beta,
-            init_state = init_state
+            init_state = cur_state
         )
 
         # assert not torch.isnan(o).any(), "NaN detected in delta_rule output"
@@ -83,6 +105,15 @@ class ConceptualDeltaNetLayer(nn.Module):
         o = o.contiguous().view(B, L, D)
         o = self.out_proj(o)
 
+        if use_cache:
+            attn_cache.update(
+                cache_index,
+                k = prev_k,
+                q = prev_q,
+                v = prev_v,
+                state = cur_state
+            )
+
         # assert not torch.isnan(o).any(), "NaN detected in output o"
 
-        return o
+        return o, attn_cache
