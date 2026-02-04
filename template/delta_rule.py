@@ -3,27 +3,29 @@ import torch.nn as nn
 
 def calc_inverse(T: torch.Tensor) -> torch.Tensor:
     B, H, C, _ = T.size()
+    dtype = T.dtype
     cur = 1
-    res = T + torch.eye(C, device=T.device, dtype=T.dtype).unsqueeze(0).unsqueeze(0)  # (B, H, C, C)
-    return torch.linalg.inv(res)
-    # res = -T + torch.eye(C, device=T.device, dtype=T.dtype).unsqueeze(0).unsqueeze(0)  # (B, H, C, C)
-    # mu = T @ T # (B, H, C, C)
+    res = T + torch.eye(C, device=T.device, dtype=dtype).unsqueeze(0).unsqueeze(0)  # (B, H, C, C)
+    return torch.linalg.inv(res.float()).to(dtype)
+    # res = -T + torch.eye(C, device=T.device, dtype=dtype).unsqueeze(0).unsqueeze(0)  # (B, H, C, C)
+    # mu = T.float() @ T.float() # (B, H, C, C)
+    # res = res.float()  # (B, H, C, C)
     # while True:
     #     if cur >= C:
     #         break
     #     res = res + (res @ mu)
     #     mu = mu @ mu
     #     cur = cur * 2 + 1
-    # return res
-    eye = torch.eye(C, device=T.device, dtype=T.dtype).unsqueeze(0).unsqueeze(0)
+    # return res.to(dtype)
+    eye = torch.eye(C, device=T.device, dtype=dtype).unsqueeze(0).unsqueeze(0)
     # (I + T)^{-1} = sum_{s=0}^{C-1} (-1)^s T^s = sum_{s=0}^{C-1} A^s, A = -T
-    res = eye  # (B, H, C, C)
-    mu = -T  # (B, H, C, C), A^{1}
+    res = eye.float()  # (B, H, C, C)
+    mu = -T.float()  # (B, H, C, C), A^{1}
     while cur < C:
         res = res + (res @ mu)
         mu = mu @ mu
         cur = cur * 2
-    return res.to(T.dtype)
+    return res.to(dtype)
 
 
 class CalcInverseFunction(torch.autograd.Function):

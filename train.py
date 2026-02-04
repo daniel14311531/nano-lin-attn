@@ -56,6 +56,8 @@ print(model_config_instance)
 print(optimizer_config)
 print(system_config)
 
+run_name = model_config_instance.model_name + time.strftime("-%Y-%m-%d-%H-%M-%S")
+
 # -----------------------------------------------------------------------------
 
 # various inits, derived attributes, I/O setup
@@ -285,7 +287,7 @@ while True:
                     'model_name': model_config_instance.model_name,
                 }
                 print(f"saving checkpoint to {io_config.out_dir}")
-                torch.save(checkpoint, os.path.join(io_config.out_dir, f'ckpt_{model_config_instance.model_name}.pt'))
+                torch.save(checkpoint, os.path.join(io_config.out_dir, f'ckpt_{run_name}.pt'))
     if iter_num == 0 and io_config.eval_only:
         break
 
