@@ -15,7 +15,7 @@ io_config = IOConfig(
 
 # wandb
 wandb_config = WandbConfig(
-    wandb_log= True,
+    wandb_log= False,
     wandb_project= 'shakespeare',
     wandb_run_name= 'deltanet', # [TODO]
 )
@@ -40,7 +40,7 @@ model_config_instance = DeltaNetConfig(
 
     conv_size=4,
     initial_state=False,
-    eta=0.0001,
+    eta=0.1,
 )
 
 # optimizer

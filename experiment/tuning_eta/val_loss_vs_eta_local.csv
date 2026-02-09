@@ -1,0 +1,16 @@
+model_name,model/eta,val/loss
+conceptual_deltanet,0.01,5.1043
+conceptual_deltanet,0.03,5.089
+conceptual_deltanet,0.1,5.0924
+conceptual_deltanet,0.3,5.1081
+conceptual_deltanet,1.0,5.1092
+deltanet,0.01,5.1195
+deltanet,0.03,5.0983
+deltanet,0.1,5.1099
+deltanet,0.3,5.1114
+deltanet,1.0,5.1237
+omd_deltanet,0.01,5.0968
+omd_deltanet,0.03,5.1201
+omd_deltanet,0.1,5.1398
+omd_deltanet,0.3,5.1093
+omd_deltanet,1.0,5.1471

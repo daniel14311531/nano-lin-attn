@@ -2,9 +2,10 @@
 echo "Starting Shakespeare model training..."
 
 configs=(
-    "gpt2"
+    # "gpt2"
     "deltanet"
     "omd_deltanet"
+    "conceptual_deltanet"
 )
 
 for config in "${configs[@]}"; do
