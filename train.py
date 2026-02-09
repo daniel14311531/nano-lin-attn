@@ -178,6 +178,7 @@ model.show_number_of_parameters()
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
 scaler = torch.amp.GradScaler(device=device, enabled=(system_config.dtype == 'float16'))
+# scaler = torch.cuda.amp.GradScaler(enabled=(system_config.dtype == 'float16'))
 
 # optimizer
 optimizer = model.configure_optimizers(optimizer_config.weight_decay, optimizer_config.learning_rate, (optimizer_config.beta1, optimizer_config.beta2), device_type)
