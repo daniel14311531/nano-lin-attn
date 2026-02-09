@@ -11,6 +11,7 @@ input.txt
 env/
 venv/
 wandb/
+.github/
 
 # not used
 bench.py
