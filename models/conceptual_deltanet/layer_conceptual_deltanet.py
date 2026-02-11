@@ -57,12 +57,12 @@ class ConceptualDeltaNetLayer(nn.Module):
         v = v.view(B, L, self.n_head, self.head_dim)
         beta = beta.view(B, L, self.n_head)
 
-        k = k / (k.norm(dim=-1, p=2, keepdim=True) + 1e-6)
-        q = q / (q.norm(dim=-1, p=2, keepdim=True) + 1e-6)
+        # k = k / (k.norm(dim=-1, p=2, keepdim=True) + 1e-6)
+        # q = q / (q.norm(dim=-1, p=2, keepdim=True) + 1e-6)
 
-        # k_norm2 = torch.sum(k ** 2, dim=-1)  # (B, L, n_head)
-        # beta = self.eta * beta / (1 + self.eta * beta * k_norm2)
-        beta = self.eta * beta / (1 + self.eta * beta)
+        k_norm2 = torch.sum(k ** 2, dim=-1)  # (B, L, n_head)
+        beta = self.eta * beta / (1 + self.eta * beta * k_norm2)
+        # beta = self.eta * beta / (1 + self.eta * beta)
 
         if self.initial_state:
             init_state = self.init_state.repeat(B, 1, 1, 1)
