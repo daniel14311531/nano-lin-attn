@@ -147,7 +147,7 @@ elif io_config.init_from == 'resume':
     print(f"Resuming training from {io_config.out_dir}")
     # resume training from a checkpoint.
     ckpt_path = os.path.join(io_config.out_dir, f'ckpt_{model_config_instance.model_name}.pt')
-    checkpoint = torch.load(ckpt_path, map_location=device)
+    checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
     checkpoint_model_args = checkpoint['model_args']
     # force these config attributes to be equal otherwise we can't even resume training
     # the rest of the attributes (e.g. dropout) can stay as desired from command line
