@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, asdict
 from typing import Dict, Any
+from typing import Literal
 
 
 @dataclass
@@ -12,7 +13,7 @@ class IOConfig:
     eval_iters: int = 200
     eval_only: bool = False
     always_save_checkpoint: bool = True
-    init_from: str = "scratch"  # "scratch" | "resume"
+    init_from: Literal["scratch", "resume"] = "scratch"  # "scratch" | "resume"
 
 
 @dataclass
@@ -46,9 +47,9 @@ class OptimizerConfig:
 
 @dataclass
 class SystemConfig:
-    backend: str = "nccl"
-    device: str = "cuda"
-    dtype: str = "bfloat16"
+    backend: Literal["nccl", "gloo"] = "nccl"
+    device: Literal["cuda", "cpu"] = "cuda"
+    dtype: Literal["bfloat16", "float16", "float32"] = "bfloat16"
     compile: bool = True
 
 

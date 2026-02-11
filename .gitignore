@@ -12,6 +12,7 @@ env/
 venv/
 wandb/
 .github/
+tmp*.*
 
 # not used
 bench.py

@@ -9,26 +9,26 @@ model_config = get_config(model_name)
 
 # I/O
 io_config = IOConfig(
-    out_dir = 'out-shakespeare-char',
+    out_dir = 'out-shakespeare',
     eval_interval = 25, # keep frequent because we'll overfit
     eval_iters = 50,
     log_interval = 5, # don't print too too often
     always_save_checkpoint = False, # we expect to overfit on this small dataset, so only save when val improves
-    init_from = 'scratch',
+    init_from = 'scratch', # 'scratch' or 'resume' from previous checkpoint in out_dir
 )
 
 # wandb
 wandb_config = WandbConfig(
     wandb_log= False,
-    wandb_project= 'shakespeare-char',
+    wandb_project= 'shakespeare',
     wandb_run_name= model_name, # [TODO]
 )
 
 # data
 data_config = DataConfig(
-    dataset = 'shakespeare_char',
-    gradient_accumulation_steps = 1,
-    batch_size = 32,
+    dataset = 'shakespeare',
+    gradient_accumulation_steps = 4,
+    batch_size = 8,
     block_size = 256, # context of up to 256 previous characters
 )
 
@@ -44,7 +44,7 @@ model_config_instance = model_config(
 
     conv_size=4,
     initial_state=False,
-    eta=1,
+    eta=0.1,
 )
 
 # optimizer
