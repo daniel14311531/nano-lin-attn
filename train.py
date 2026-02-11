@@ -147,7 +147,7 @@ elif io_config.init_from == 'resume':
     print(f"Resuming training from {io_config.out_dir}")
     # resume training from a checkpoint.
     ckpt_path = os.path.join(io_config.out_dir, f'ckpt_{model_config_instance.model_name}.pt')
-    checkpoint = torch.load(ckpt_path, map_location=device)
+    checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
     checkpoint_model_args = checkpoint['model_args']
     # force these config attributes to be equal otherwise we can't even resume training
     # the rest of the attributes (e.g. dropout) can stay as desired from command line
@@ -178,6 +178,7 @@ model.show_number_of_parameters()
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
 scaler = torch.amp.GradScaler(device=device, enabled=(system_config.dtype == 'float16'))
+# scaler = torch.cuda.amp.GradScaler(enabled=(system_config.dtype == 'float16'))
 
 # optimizer
 optimizer = model.configure_optimizers(optimizer_config.weight_decay, optimizer_config.learning_rate, (optimizer_config.beta1, optimizer_config.beta2), device_type)
@@ -287,7 +288,7 @@ while True:
                     'model_name': model_config_instance.model_name,
                 }
                 print(f"saving checkpoint to {io_config.out_dir}")
-                torch.save(checkpoint, os.path.join(io_config.out_dir, f'ckpt_{run_name}.pt'))
+                torch.save(checkpoint, os.path.join(io_config.out_dir, f'ckpt_{model_config_instance.model_name}.pt'))
     if iter_num == 0 and io_config.eval_only:
         break
 
