@@ -11,7 +11,7 @@ model_config = get_config(model_name)
 io_config = IOConfig(
     out_dir = 'out-shakespeare',
     eval_interval = 25, # keep frequent because we'll overfit
-    eval_iters = 50,
+    eval_iters = 100,
     log_interval = 5, # don't print too too often
     always_save_checkpoint = False, # we expect to overfit on this small dataset, so only save when val improves
     init_from = 'scratch', # 'scratch' or 'resume' from previous checkpoint in out_dir
@@ -50,7 +50,7 @@ model_config_instance = model_config(
 # optimizer
 optimizer_config = OptimizerConfig(
     learning_rate = 5e-4, # with baby networks can afford to go a bit higher
-    max_iters = 500,
+    max_iters = 800,
     lr_decay_iters = 1000, # make equal to max_iters usually
     min_lr = 1e-4, # learning_rate / 10 usually
     beta2 = 0.99, # make a bit bigger because number of tokens per iter is small

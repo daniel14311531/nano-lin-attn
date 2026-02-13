@@ -7,3 +7,4 @@ class ConceptualDeltaNetConfig(Config):
     conv_size: int = 4
     initial_state: bool = False
     eta: float = 1e5
+    use_qk_activation: bool = False

@@ -31,13 +31,17 @@ class DeltaNetLayer(nn.Module):
         if config.initial_state:
             self.init_state = nn.Parameter(torch.zeros(1, config.n_head, self.head_dim, self.head_dim))
         self.eta = config.eta
+        self.use_qk_activation = config.use_qk_activation
 
     def forward(self, x):
         B, L, D = x.size()
-        k = F.silu(self.k_conv1d(self.k_proj(x)))
-        q = F.silu(self.q_conv1d(self.q_proj(x)))
+        k = self.k_conv1d(self.k_proj(x))
+        q = self.q_conv1d(self.q_proj(x))
         v = self.v_conv1d(self.v_proj(x))
         beta = torch.sigmoid(self.beta_proj(x))
+        if self.use_qk_activation:
+            k = F.silu(k)
+            q = F.silu(q)
 
         k = k.view(B, L, self.n_head, self.head_dim)
         q = q.view(B, L, self.n_head, self.head_dim)
