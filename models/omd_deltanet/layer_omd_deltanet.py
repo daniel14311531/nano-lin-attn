@@ -43,6 +43,7 @@ class OmdDeltaNetLayer(nn.Module):
         q = q.view(B, L, self.n_head, self.head_dim)
         v = v.view(B, L, self.n_head, self.head_dim)
         beta = beta.view(B, L, self.n_head)
+        v = F.silu(v)
 
         knorm = torch.norm(k, dim=-1, keepdim=True)  # (B, L, n_head, 1)
         qnorm = torch.norm(q, dim=-1, keepdim=True)  # (B, L, n_head, 1)

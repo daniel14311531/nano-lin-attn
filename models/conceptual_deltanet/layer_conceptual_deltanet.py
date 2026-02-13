@@ -56,9 +56,13 @@ class ConceptualDeltaNetLayer(nn.Module):
         q = q.view(B, L, self.n_head, self.head_dim)
         v = v.view(B, L, self.n_head, self.head_dim)
         beta = beta.view(B, L, self.n_head)
+        v = F.silu(v)
 
-        # k = k / (k.norm(dim=-1, p=2, keepdim=True) + 1e-6)
-        # q = q / (q.norm(dim=-1, p=2, keepdim=True) + 1e-6)
+        knorm = torch.norm(k, dim=-1, keepdim=True)  # (B, L, n_head, 1)
+        qnorm = torch.norm(q, dim=-1, keepdim=True)  # (B, L, n_head, 1)
+        k = k / (knorm + 1e-6)
+        v = v / (knorm + 1e-6)  # use k's norm for v to maintain scale
+        q = q / (qnorm + 1e-6)
 
         k_norm2 = torch.sum(k ** 2, dim=-1)  # (B, L, n_head)
         beta = self.eta * beta / (1 + self.eta * beta * k_norm2)
