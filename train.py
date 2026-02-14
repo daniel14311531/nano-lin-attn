@@ -275,7 +275,7 @@ while True:
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
             })
-        if losses['val'] < best_val_loss or io_config.always_save_checkpoint:
+        if not io_config.eval_only and (losses['val'] < best_val_loss or io_config.always_save_checkpoint):
             best_val_loss = losses['val']
             if iter_num > 0:
                 checkpoint = {
@@ -289,7 +289,7 @@ while True:
                 }
                 print(f"saving checkpoint to {io_config.out_dir}")
                 torch.save(checkpoint, os.path.join(io_config.out_dir, f'ckpt_{model_config_instance.model_name}.pt'))
-    if iter_num == 0 and io_config.eval_only:
+    if io_config.eval_only:
         break
 
     # forward backward update, with optional gradient accumulation to simulate larger batch size
