@@ -252,8 +252,24 @@ t0 = time.time()
 local_iter_num = 0 # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model # unwrap DDP container if needed
 running_mfu = -1.0
+is_saved_checkpoint = False
 
 training_start_time = time.time()
+
+def save_checkpoint():
+    global is_saved_checkpoint
+    is_saved_checkpoint = True
+    checkpoint = {
+        'model': raw_model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'model_args': model_args,
+        'iter_num': iter_num,
+        'best_val_loss': best_val_loss,
+        'config': config,
+        'model_name': model_config_instance.model_name,
+    }
+    print(f"saving checkpoint to {io_config.out_dir}")
+    torch.save(checkpoint, os.path.join(io_config.out_dir, f'ckpt_{model_config_instance.model_name}.pt'))
 
 while True:
 
@@ -278,17 +294,7 @@ while True:
         if not io_config.eval_only and (losses['val'] < best_val_loss or io_config.always_save_checkpoint):
             best_val_loss = losses['val']
             if iter_num > 0:
-                checkpoint = {
-                    'model': raw_model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'model_args': model_args,
-                    'iter_num': iter_num,
-                    'best_val_loss': best_val_loss,
-                    'config': config,
-                    'model_name': model_config_instance.model_name,
-                }
-                print(f"saving checkpoint to {io_config.out_dir}")
-                torch.save(checkpoint, os.path.join(io_config.out_dir, f'ckpt_{model_config_instance.model_name}.pt'))
+                save_checkpoint()
     if io_config.eval_only:
         break
 
@@ -343,6 +349,9 @@ while True:
     # termination conditions
     if iter_num > optimizer_config.max_iters:
         break
+
+if master_process and not io_config.eval_only and not is_saved_checkpoint:
+    save_checkpoint()
 
 training_end_time = time.time()
 total_training_time = training_end_time - training_start_time
