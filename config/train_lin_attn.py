@@ -19,9 +19,9 @@ io_config = IOConfig(
 
 # wandb
 wandb_config = WandbConfig(
-    wandb_log= False,
-    wandb_project= 'shakespeare',
-    wandb_run_name= model_name, # [TODO]
+    wandb_log = False,
+    wandb_project = 'shakespeare',
+    wandb_run_name = model_name, # [TODO]
 )
 
 # data
@@ -42,9 +42,9 @@ model_config_instance = model_config(
     block_size = 256,
     bias = False,
 
-    conv_size=4,
-    initial_state=False,
-    eta=1,
+    conv_size = 4,
+    initial_state = False,
+    eta = 0.1,
 )
 
 # optimizer

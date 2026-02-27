@@ -29,6 +29,7 @@ class DataConfig:
     gradient_accumulation_steps: int = 5 * 8
     batch_size: int = 12
     block_size: int = 1024
+    sample_mode: Literal['permuted', 'unordered'] = 'unordered'  # 'permuted' or 'unordered'
 
 
 @dataclass

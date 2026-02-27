@@ -32,6 +32,7 @@ class ConceptualDeltaNetLayer(nn.Module):
             self.init_state = nn.Parameter(torch.zeros(1, config.n_head, self.head_dim, self.head_dim))
         self.eta = config.eta
         self.use_qk_activation = config.use_qk_activation
+        self.sync_kv_scale = config.sync_kv_scale
 
     def forward(self, x):
         # check NaNs in weights
@@ -65,7 +66,8 @@ class ConceptualDeltaNetLayer(nn.Module):
         knorm = torch.norm(k, dim=-1, keepdim=True)  # (B, L, n_head, 1)
         qnorm = torch.norm(q, dim=-1, keepdim=True)  # (B, L, n_head, 1)
         k = k / (knorm + 1e-6)
-        v = v / (knorm + 1e-6)  # use k's norm for v to maintain scale
+        if self.sync_kv_scale:
+            v = v / (knorm + 1e-6)
         q = q / (qnorm + 1e-6)
 
         k_norm2 = torch.sum(k ** 2, dim=-1)  # (B, L, n_head)
