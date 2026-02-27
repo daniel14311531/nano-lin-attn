@@ -62,20 +62,29 @@ class RotaryEmbedding(nn.Module):
 		self.register_buffer("cos_cached", emb.cos().to(dtype), persistent=False)
 		self.register_buffer("sin_cached", emb.sin().to(dtype), persistent=False)
 
-	def forward(self, x: torch.Tensor, seq_len: int | None = None) -> torch.Tensor:
+	def forward(
+		self,
+		x: torch.Tensor,
+		offset: int | None = None,
+		seq_len: int | None = None
+	) -> torch.Tensor:
 		"""
 		Return the output after RoPE.
 
 		Args:
 			x: tensor shaped (B, nh, T, hs) or similar; only length is used.
 			seq_len: override sequence length.
+			offset: position offset for rotary embeddings.
 		"""
 		if seq_len is None:
 			seq_len = x.shape[-2]
 
-		if seq_len > self.cos_cached.shape[0] or self.cos_cached.device != x.device:
-			self._set_cos_sin_cache(seq_len=seq_len, device=x.device, dtype=x.dtype)
+		if offset is None:
+			offset = 0
+
+		if offset + seq_len > self.cos_cached.shape[0] or self.cos_cached.device != x.device:
+			self._set_cos_sin_cache(seq_len=offset + seq_len, device=x.device, dtype=x.dtype)
 		
-		cos = self.cos_cached[:seq_len, :].to(x.dtype)
-		sin = self.sin_cached[:seq_len, :].to(x.dtype)
+		cos = self.cos_cached[offset:offset+seq_len, :].to(x.dtype)
+		sin = self.sin_cached[offset:offset+seq_len, :].to(x.dtype)
 		return apply_rotary_pos_emb(x, cos, sin)

@@ -105,7 +105,7 @@ def delta_rule(
     
     o = torch.concat(o, dim=2)  # (B, H, L, D)
     o = o.transpose(1, 2)  # (B, L, H, D)
-    return o
+    return o, state
 
 def brute_force_delta_rule(
     k: torch.Tensor,
@@ -135,7 +135,7 @@ def brute_force_delta_rule(
         o[:, :, t, :] = o_t.squeeze(-2)
 
     o = o.transpose(1, 2)  # (B, L, H, D)
-    return o
+    return o, state
 
 def test_delta_rule():
     B, L, H, D = 2, 2048, 4, 8
@@ -155,8 +155,8 @@ def test_delta_rule():
     # print(f"v: {v}")
     # print(f"beta: {beta}")
 
-    o = delta_rule(k, q, v, beta, init_state)
-    o_brute = brute_force_delta_rule(k, q, v, beta, init_state)
+    o, _ = delta_rule(k, q, v, beta, init_state)
+    o_brute, _ = brute_force_delta_rule(k, q, v, beta, init_state)
     # print(o)
     # print(o_brute)
     assert torch.allclose(o, o_brute, atol=1e-4), "Delta rule implementation does not match brute force!"

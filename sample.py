@@ -120,6 +120,12 @@ x = (torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...])
 with torch.no_grad():
     with ctx:
         for k in range(num_samples):
-            y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
+            y = model.generate(
+                x,
+                max_new_tokens,
+                temperature=temperature,
+                top_k=top_k,
+                use_cache=True,
+            )
             print(decode(y[0].tolist()))
             print('---------------')

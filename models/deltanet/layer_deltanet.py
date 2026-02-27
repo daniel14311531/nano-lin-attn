@@ -5,6 +5,7 @@ from .configuration_deltanet import DeltaNetConfig
 from template.shortconvolution import ShortConv
 from template.norm import RMSNorm
 from template.delta_rule import delta_rule
+from template.cache import AttnCache
 
 class DeltaNetLayer(nn.Module):
     def __init__(self, config: DeltaNetConfig):
@@ -34,15 +35,30 @@ class DeltaNetLayer(nn.Module):
         self.use_qk_activation = config.use_qk_activation
         self.sync_kv_scale = config.sync_kv_scale
 
-    def forward(self, x):
+    def forward(
+        self,
+        x: torch.Tensor,
+        use_cache: bool=False,
+        cache_index: int=None,
+        attn_cache: AttnCache = None,
+    ):
         B, L, D = x.size()
-        k = self.k_conv1d(self.k_proj(x))
-        q = self.q_conv1d(self.q_proj(x))
-        v = self.v_conv1d(self.v_proj(x))
+
+        assert (not use_cache) or (attn_cache is not None and cache_index is not None), "attn_cache and cache_index must be provided when use_cache is True"
+
+        prev_k, prev_q, prev_v = None, None, None
+        if use_cache:
+            cache = attn_cache.get(cache_index)
+            prev_k = cache.get('k')
+            prev_q = cache.get('q')
+            prev_v = cache.get('v')
+
+        k, prev_k = self.k_conv1d(self.k_proj(x), prev_k)
+        q, prev_q = self.q_conv1d(self.q_proj(x), prev_q)
+        v, prev_v = self.v_conv1d(self.v_proj(x), prev_v)
         beta = torch.sigmoid(self.beta_proj(x))
         if self.use_qk_activation:
-            k = F.silu(k)
-            q = F.silu(q)
+            k, q = F.silu(k), F.silu(q)
 
         k = k.view(B, L, self.n_head, self.head_dim)
         q = q.view(B, L, self.n_head, self.head_dim)
@@ -57,21 +73,34 @@ class DeltaNetLayer(nn.Module):
             v = v / (knorm + 1e-6)
         q = q / (qnorm + 1e-6)
 
-        if self.initial_state:
-            init_state = self.init_state.repeat(B, 1, 1, 1)
-        else:
-            init_state = torch.zeros(B, self.n_head, self.head_dim, self.head_dim, device=x.device, dtype=x.dtype)
+        cur_state = None
+        if use_cache:
+            cur_state = cache.get('state')
+        if cur_state is None:
+            if self.initial_state:
+                cur_state = self.init_state.repeat(B, 1, 1, 1)
+            else:
+                cur_state = torch.zeros(B, self.n_head, self.head_dim, self.head_dim, device=x.device, dtype=x.dtype)
 
-        o = delta_rule(
+        o, cur_state = delta_rule(
             k = k,
             q = q,
             v = v,
             beta = self.eta * beta,
-            init_state = init_state
+            init_state = cur_state
         )
 
         o = self.out_norm(o)
         o = o.contiguous().view(B, L, D)
         o = self.out_proj(o)
 
-        return o
+        if use_cache:
+            attn_cache.update(
+                cache_index,
+                k = prev_k,
+                q = prev_q,
+                v = prev_v,
+                state = cur_state
+            )
+
+        return o, attn_cache
