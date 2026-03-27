@@ -5,11 +5,13 @@ import os
 from tqdm import tqdm
 import numpy as np
 import tiktoken
-from datasets import load_dataset, interleave_datasets # huggingface datasets
+from datasets import IterableDataset, Dataset, load_dataset, interleave_datasets # huggingface datasets
+from functools import partial
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 # number of workers in .map() call
 # good number to use is ~order number of cpu cores // 2
-num_proc = 8
+num_proc = 4
 
 # number of workers in load_dataset() call
 # best number might be different from num_proc above as it also depends on NW speed.
@@ -19,9 +21,9 @@ num_proc_load_dataset = num_proc
 enc = tiktoken.get_encoding("gpt2")
 
 def get_mixed_data():
-    ds1 = load_dataset("codelion/finepdfs-1B", split="train", streaming=True, num_proc=num_proc_load_dataset)
-    ds2 = load_dataset("codelion/dclm-baseline-1B", split="train", streaming=True, num_proc=num_proc_load_dataset)
-    ds3 = load_dataset("codelion/fineweb-edu-1B", split="train", streaming=True, num_proc=num_proc_load_dataset)
+    ds1 = load_dataset("codelion/finepdfs-1B", split="train", streaming=True)
+    ds2 = load_dataset("codelion/dclm-baseline-1B", split="train", streaming=True)
+    ds3 = load_dataset("codelion/fineweb-edu-1B", split="train", streaming=True)
 
     def estimate_avg_len(ds, num=1000):
         lens = []
@@ -37,21 +39,24 @@ def get_mixed_data():
     avg2 = estimate_avg_len(ds2)
     avg3 = estimate_avg_len(ds3)
 
-    ds1 = load_dataset("codelion/finepdfs-1B", split="train", streaming=True, num_proc=num_proc_load_dataset)
-    ds2 = load_dataset("codelion/dclm-baseline-1B", split="train", streaming=True, num_proc=num_proc_load_dataset)
-    ds3 = load_dataset("codelion/fineweb-edu-1B", split="train", streaming=True, num_proc=num_proc_load_dataset)
+    ds1 = load_dataset("codelion/finepdfs-1B", split="train", streaming=True)
+    ds2 = load_dataset("codelion/dclm-baseline-1B", split="train", streaming=True)
+    ds3 = load_dataset("codelion/fineweb-edu-1B", split="train", streaming=True)
 
     p_tokens = [0.5, 0.3, 0.2]
     L = [avg1, avg2, avg3]
     raw = [p_tokens[i] / L[i] for i in range(3)]
     probs = [r / sum(raw) for r in raw]
 
-    mixed = interleave_datasets(
+    mixed: IterableDataset = interleave_datasets(
         [ds1, ds2, ds3],
         probabilities=probs,
         seed=42,
         stopping_strategy="all_exhausted"
     )
+    def mixed_generator(iter_ds):
+        yield from iter_ds
+    mixed = Dataset.from_generator(partial(mixed_generator, mixed), features=mixed.features)
     return mixed
 
 
@@ -70,12 +75,14 @@ if __name__ == '__main__':
     tokenized = dataset.map(
         process,
         remove_columns=['text'],
-        desc="tokenizing dataset",
-        num_proc=num_proc,
     )
+
+    print(dataset) # should have 'ids' and 'len' fields, and 'ids' should be a list of token ids
+    print(tokenized) # should have 'ids' and 'len' fields, and 'ids' should be a list of token ids
 
     # concatenate all the ids in each dataset into one large file we can use for training
     arr_len = np.sum(tokenized['len'], dtype=np.uint64)
+    print(f'total tokens: {arr_len:,}') # should be ~1B for train
     filename = os.path.join(os.path.dirname(__file__), 'train.bin')
     dtype = np.uint16 # (can do since enc.max_token_value == 50256 is < 2**16)
     arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(arr_len,))
