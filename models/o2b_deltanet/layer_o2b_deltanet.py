@@ -74,9 +74,10 @@ class O2DDeltaNetLayer(nn.Module):
         if use_cache:
             cur_state = cache.get('state')
         if cur_state is None:
+            # State uses float32 for numerical stability
             cur_state = (
-                torch.zeros(B, self.n_head, self.head_dim, self.head_dim, device=x.device, dtype=x.dtype),
-                torch.zeros(B, self.n_head, self.head_dim, self.head_dim, device=x.device, dtype=x.dtype),
+                torch.zeros(B, self.n_head, self.head_dim, self.head_dim, device=x.device, dtype=torch.float32),
+                torch.zeros(B, self.n_head, self.head_dim, self.head_dim, device=x.device, dtype=torch.float32),
                 torch.tensor(0, dtype=torch.long, device=x.device),
             )
 

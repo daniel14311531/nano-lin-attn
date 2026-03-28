@@ -6,22 +6,15 @@ sys.path.insert(0, sys.path[0] + '/../../..')
 
 from ops.o2b_deltanet import o2b_delta_rule, o2b_delta_rule_recurrent, O2B_state
 
-# dtype = torch.float32
-dtype = torch.bfloat16
-
-# Adjust tolerances based on dtype precision
-# bfloat16 has ~7-8 bits of mantissa (vs 23 for float32), so we need looser tolerances
-# Forward pass can achieve ~1e-2, backward pass needs ~1e-1 for bfloat16
-if dtype == torch.bfloat16:
-    TOLERANCE_ATOL_FWD = 1e-2
-    TOLERANCE_RTOL_FWD = 1e-2
-    TOLERANCE_ATOL_BWD = 3e-1  # Looser for backward pass
-    TOLERANCE_RTOL_BWD = 3e-1
-else:
-    TOLERANCE_ATOL_FWD = 1e-3
-    TOLERANCE_RTOL_FWD = 1e-3
-    TOLERANCE_ATOL_BWD = 1e-3
-    TOLERANCE_RTOL_BWD = 1e-3
+# Test both float32 and bfloat16
+def get_tolerances(dtype):
+    """Get tolerances based on dtype precision."""
+    # bfloat16 has ~7-8 bits of mantissa (vs 23 for float32), so we need looser tolerances
+    # Forward pass can achieve ~1e-2, backward pass needs ~1e-1 for bfloat16
+    if dtype == torch.bfloat16:
+        return 1e-2, 1e-2, 3e-1, 3e-1  # atol_fwd, rtol_fwd, atol_bwd, rtol_bwd
+    else:
+        return 1e-4, 1e-4, 1e-4, 1e-4
 
 def relative_error(a: torch.Tensor, b: torch.Tensor) -> float:
     """Compute relative error between two tensors."""
@@ -39,10 +32,11 @@ def print_error_stats(name: str, a: torch.Tensor, b: torch.Tensor):
     print(f"  {name:12s}: rel_err={rel_err:.6e}, abs_err={abs_err:.6e}")
 
 
-@pytest.mark.parametrize("B,L,H,D", [(2, 128, 4, 8), (4, 200, 2, 16)])
-def test_o2b_delta_rule_forward(B, L, H, D):
+@pytest.mark.parametrize("B,L,H,D,dtype", [(2, 128, 4, 8, torch.float32), (4, 200, 2, 16, torch.float32), (2, 128, 4, 8, torch.bfloat16)])
+def test_o2b_delta_rule_forward(B, L, H, D, dtype):
     """Test forward pass matches recurrent implementation."""
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    TOLERANCE_ATOL_FWD, TOLERANCE_RTOL_FWD, _, _ = get_tolerances(dtype)
 
     k = F.normalize(torch.randn(B, L, H, D, device=device, dtype=dtype), dim=-1)
     q = F.normalize(torch.randn(B, L, H, D, device=device, dtype=dtype), dim=-1)
@@ -50,15 +44,15 @@ def test_o2b_delta_rule_forward(B, L, H, D):
     b = torch.randn(B, L, H, D, device=device, dtype=dtype) * 0.1
 
     init_state: O2B_state = (
-        torch.zeros(B, H, D, D, device=device, dtype=dtype),
-        torch.zeros(B, H, D, D, device=device, dtype=dtype),
+        torch.zeros(B, H, D, D, device=device, dtype=torch.float32),
+        torch.zeros(B, H, D, D, device=device, dtype=torch.float32),
         torch.tensor(1, device=device),
     )
 
     o_parallel, state_parallel = o2b_delta_rule(k, q, v, b, init_state)
     o_recurrent, state_recurrent = o2b_delta_rule_recurrent(k, q, v, b, init_state)
 
-    print(f"\n[B={B}, L={L}, H={H}, D={D}] Forward pass error stats:")
+    print(f"\n[B={B}, L={L}, H={H}, D={D}, dtype={dtype}] Forward pass error stats:")
     print_error_stats("output", o_parallel, o_recurrent)
     print_error_stats("W_t", state_parallel[0], state_recurrent[0])
     print_error_stats("W_avg", state_parallel[1], state_recurrent[1])
@@ -69,10 +63,11 @@ def test_o2b_delta_rule_forward(B, L, H, D):
     assert state_parallel[2] == state_recurrent[2], "t mismatch"
 
 
-@pytest.mark.parametrize("B,L,H,D", [(2, 128, 4, 8), (4, 200, 2, 16)])
-def test_o2b_delta_rule_backward(B, L, H, D):
+@pytest.mark.parametrize("B,L,H,D,dtype", [(2, 128, 4, 8, torch.float32), (4, 200, 2, 16, torch.float32), (2, 128, 4, 8, torch.bfloat16)])
+def test_o2b_delta_rule_backward(B, L, H, D, dtype):
     """Test backward pass gradients match recurrent implementation."""
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    _, _, TOLERANCE_ATOL_BWD, TOLERANCE_RTOL_BWD = get_tolerances(dtype)
 
     # Shared random seed for reproducibility
     torch.manual_seed(42)
@@ -100,8 +95,8 @@ def test_o2b_delta_rule_backward(B, L, H, D):
     k2, q2, v2, b2 = create_inputs()
 
     init_state: O2B_state = (
-        torch.zeros(B, H, D, D, device=device, dtype=dtype),
-        torch.zeros(B, H, D, D, device=device, dtype=dtype),
+        torch.zeros(B, H, D, D, device=device, dtype=torch.float32),
+        torch.zeros(B, H, D, D, device=device, dtype=torch.float32),
         torch.tensor(1, device=device),
     )
 
@@ -113,7 +108,7 @@ def test_o2b_delta_rule_backward(B, L, H, D):
     o_parallel.backward(grad_output)
     o_recurrent.backward(grad_output.clone())
 
-    print(f"\n[B={B}, L={L}, H={H}, D={D}] Backward pass gradient error stats:")
+    print(f"\n[B={B}, L={L}, H={H}, D={D}, dtype={dtype}] Backward pass gradient error stats:")
     print_error_stats("k.grad", k1.grad, k2.grad)
     print_error_stats("q.grad", q1.grad, q2.grad)
     print_error_stats("v.grad", v1.grad, v2.grad)
