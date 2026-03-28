@@ -1,4 +1,4 @@
-# nanoFLA
+# nano-lin-attn
 
 A minimal and hackable training framework for comparing linear attention models (DeltaNet variants) with GPT-2, built on top of [nanoGPT](https://github.com/karpathy/nanoGPT).
 
@@ -224,10 +224,10 @@ This project is built on top of [nanoGPT](https://github.com/karpathy/nanoGPT) b
 If you use this code in your research, please cite:
 
 ```bibtex
-@software{nanofla2026,
-  title = {nanoFLA: Minimal Linear Attention Training Framework},
-  author = {Your Name},
+@software{nano-lin-attn2026,
+  title = {nano-lin-attn: Minimal Linear Attention Training Framework},
+  author = {daniel14311531},
   year = {2026},
-  url = {https://github.com/yourusername/nanofla}
+  url = {https://github.com/daniel14311531/nano-lin-attn}
 }
 ``` -->
